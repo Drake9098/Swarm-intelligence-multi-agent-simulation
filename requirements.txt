@@ -1,0 +1,7 @@
+# Simulazione e visualizzazione
+pygame>=2.5.0
+
+# Calcolo numerico e heatmap
+numpy>=1.26.0
+matplotlib>=3.8.0
+
