@@ -52,6 +52,9 @@ class Agent:
         self.known_gone_objects: set[int] = set()
         self._scatter_done = False
         self._fetch_target: tuple | None = None
+        self._cached_return_cost: int = 0
+        self._last_cost_pos: tuple | None = None
+        self.can_fetch: bool = True
 
     @property
     def explore_strategy(self) -> str | None:
@@ -147,10 +150,19 @@ class Agent:
                 if self.local_map[w["entrance"][0]][w["entrance"][1]] != UNKNOWN]
 
     def _cost_to_nearest_entrance(self, env) -> int:
+        moved = (
+            self._last_cost_pos is None
+            or abs(self.r - self._last_cost_pos[0]) + abs(self.c - self._last_cost_pos[1]) >= 5
+        )
+        near_threshold = self.battery <= self._cached_return_cost + self.EMERGENCY_MARGIN + 15
+        if not moved and not near_threshold:
+            return self._cached_return_cost
         warehouses = self._known_warehouse_entrances(env) or env.get_warehouse_entrances()
         best = min(abs(self.r - w["entrance"][0]) + abs(self.c - w["entrance"][1])
                    for w in warehouses)
-        return int(best * 1.5)
+        self._cached_return_cost = int(best * 1.5)
+        self._last_cost_pos = (self.r, self.c)
+        return self._cached_return_cost
 
     def _path_to_nearest_entrance(self, env) -> list:
         warehouses = self._known_warehouse_entrances(env) or env.get_warehouse_entrances()
@@ -227,6 +239,10 @@ class Agent:
             return 0.0
         return sum(1 for r, c in path if self.local_map[r][c] == UNKNOWN) / len(path)
 
+    def _is_path_valid(self) -> bool:
+        """Restituisce False se almeno una cella del percorso cached è stata rivelata come muro."""
+        return all(self.local_map[r][c] != WALL for r, c in self._path)
+
     def _frontier_toward(self, target: tuple) -> tuple | None:
         """Frontiera nota più vicina al target (waypoint per esplorazione guidata verso FETCH)."""
         best, best_dist = None, float('inf')
@@ -251,10 +267,13 @@ class Agent:
     # FSM
     # ------------------------------------------------------------------
 
-    def decide(self, env):
+    def decide(self, env) -> bool:
         if self.battery <= 0:
             self.state = AgentState.DEAD
-            return
+            return True
+
+        if self._path and not self._is_path_valid():
+            self._path = []
 
         return_cost = self._cost_to_nearest_entrance(env)
         if self.battery <= return_cost + self.EMERGENCY_MARGIN:
@@ -263,7 +282,7 @@ class Agent:
                 self._path = []
             if not self._path:
                 self._path = self._path_to_nearest_entrance(env)
-            return
+            return True
 
         if self.state == AgentState.DELIVER and self.carrying is not None:
             if not self._path:
@@ -273,7 +292,7 @@ class Agent:
                     frontier = self._nearest_frontier()
                     if frontier:
                         self._path = self._astar(env, frontier)
-            return
+            return False
 
         if self.carrying is not None:
             self.state = AgentState.DELIVER
@@ -283,53 +302,39 @@ class Agent:
                 frontier = self._nearest_frontier()
                 if frontier:
                     self._path = self._astar(env, frontier)
-            return
+            return False
 
-        if self.state == AgentState.FETCH and self._path:
-            if self._fetch_target is not None and self._fetch_target in self.known_objects.values():
-                return
-            self._path = []
-            self._fetch_target = None
-        if self.known_objects:
-            best_path = None
-            best_pos = None
-            candidates = sorted(self.known_objects.items(),
-                                key=lambda kv: abs(kv[1][0] - self.r) + abs(kv[1][1] - self.c))[:3]
-            for _, pos in candidates:
-                path = self._astar(env, pos)
-                if path:
-                    if self._unknown_ratio(path) > self._FETCH_UNKNOWN_THRESHOLD:
-                        guided = self._frontier_toward(pos)
-                        if guided is not None:
-                            guided_path = self._astar(env, guided)
-                            if guided_path:
-                                path = guided_path
-                    if best_path is None or len(path) < len(best_path):
-                        best_path = path
-                        best_pos = pos
-            if best_path is not None:
-                self.state = AgentState.FETCH
-                self._path = best_path
-                self._fetch_target = best_pos
-                return
+        if self.can_fetch:
+            if self.state == AgentState.FETCH and self._path:
+                if self._fetch_target is not None and self._fetch_target in self.known_objects.values():
+                    return False
+                self._path = []
+                self._fetch_target = None
+            if not self._path and self.known_objects:
+                best_path = None
+                best_pos = None
+                candidates = sorted(self.known_objects.items(),
+                                    key=lambda kv: abs(kv[1][0] - self.r) + abs(kv[1][1] - self.c))[:3]
+                for _, pos in candidates:
+                    path = self._astar(env, pos)
+                    if path:
+                        if self._unknown_ratio(path) > self._FETCH_UNKNOWN_THRESHOLD:
+                            guided = self._frontier_toward(pos)
+                            if guided is not None:
+                                guided_path = self._astar(env, guided)
+                                if guided_path:
+                                    path = guided_path
+                        if best_path is None or len(path) < len(best_path):
+                            best_path = path
+                            best_pos = pos
+                if best_path is not None:
+                    self.state = AgentState.FETCH
+                    self._path = best_path
+                    self._fetch_target = best_pos
+                    return False
 
         self.state = AgentState.EXPLORE
-        if not self._path:
-            if not self._scatter_done:
-                if self.quadrant is not None:
-                    target = self._SCATTER_TARGETS[self.quadrant]
-                    if abs(self.r - target[0]) + abs(self.c - target[1]) <= 3:
-                        self._scatter_done = True
-                    else:
-                        self._path = self._astar(env, target)
-                        if not self._path:
-                            self._scatter_done = True
-                else:
-                    self._scatter_done = True
-            if not self._path:
-                frontier = self._explore_target()
-                if frontier is not None:
-                    self._path = self._astar(env, frontier)
+        return False
 
     def _move(self, env):
         if not self._path:
@@ -379,6 +384,7 @@ class Scout(Agent):
     def __init__(self, agent_id: int, quadrant: int, grid=None):
         super().__init__(agent_id, vision_radius=3, comm_radius=2, quadrant=quadrant, grid=grid)
         self.role = "scout"
+        self.can_fetch = False
 
     @property
     def explore_strategy(self) -> str:
@@ -388,19 +394,8 @@ class Scout(Agent):
         return self._repulsion_target()
 
     def decide(self, env):
-        if self.battery <= 0:
-            self.state = AgentState.DEAD
+        if super().decide(env):
             return
-        return_cost = self._cost_to_nearest_entrance(env)
-        if self.battery <= return_cost + self.EMERGENCY_MARGIN:
-            if self.state != AgentState.EMERGENCY:
-                self.state = AgentState.EMERGENCY
-                self._path = []
-            if not self._path:
-                self._path = self._path_to_nearest_entrance(env)
-            return
-
-        self.state = AgentState.EXPLORE
 
         if not self._path:
             if not self._scatter_done:
@@ -452,68 +447,15 @@ class Collector(Agent):
         return best
 
     def decide(self, env):
-        if self.battery <= 0:
-            self.state = AgentState.DEAD
-            return
-
-        return_cost = self._cost_to_nearest_entrance(env)
-        if self.battery <= return_cost + self.EMERGENCY_MARGIN:
-            if self.state != AgentState.EMERGENCY:
-                self.state = AgentState.EMERGENCY
-                self._path = []
-            if not self._path:
-                self._path = self._path_to_nearest_entrance(env)
-            return
-
-        if self.state == AgentState.DELIVER and self.carrying is not None:
-            if not self._path:
-                self._path = self._path_into_nearest_warehouse(env)
-                if not self._path:
-                    # Magazzino non ancora scoperto: esplora per trovarlo
-                    frontier = self._nearest_frontier()
-                    if frontier:
-                        self._path = self._astar(env, frontier)
-            return
-
-        if self.carrying is not None:
-            self.state = AgentState.DELIVER
-            self._path = self._path_into_nearest_warehouse(env)
-            if not self._path:
-                # Magazzino non ancora scoperto: esplora per trovarlo
-                frontier = self._nearest_frontier()
-                if frontier:
-                    self._path = self._astar(env, frontier)
-            return
-
-        if self.state == AgentState.FETCH and self._path:
-            if self._fetch_target is not None and self._fetch_target in self.known_objects.values():
-                return
+        # Early-fetch: se conosce oggetti ed è in fase di presidio (scatter già completato),
+        # azzera il path così super() può subito pianificare FETCH.
+        if (self.known_objects and self.can_fetch
+                and self.state == AgentState.EXPLORE
+                and self._path and self._scatter_done):
             self._path = []
-            self._fetch_target = None
-        if self.known_objects:
-            best_path = None
-            best_pos = None
-            candidates = sorted(self.known_objects.items(),
-                                key=lambda kv: abs(kv[1][0] - self.r) + abs(kv[1][1] - self.c))[:3]
-            for _, pos in candidates:
-                path = self._astar(env, pos)
-                if path:
-                    if self._unknown_ratio(path) > self._FETCH_UNKNOWN_THRESHOLD:
-                        guided = self._frontier_toward(pos)
-                        if guided is not None:
-                            guided_path = self._astar(env, guided)
-                            if guided_path:
-                                path = guided_path
-                    if best_path is None or len(path) < len(best_path):
-                        best_path = path
-                        best_pos = pos
-            if best_path is not None:
-                self.state = AgentState.FETCH
-                self._path = best_path
-                self._fetch_target = best_pos
-                return
 
-        self.state = AgentState.EXPLORE
+        if super().decide(env):
+            return
 
         # Fase 1: raggiungi la zona iniziale (Est o Ovest) prima di presidiare
         if not self._scatter_done:
@@ -584,27 +526,28 @@ class Relay(Agent):
         super().__init__(agent_id, vision_radius=2, comm_radius=2, quadrant=None, grid=grid)
         self.role = "relay"
         self._patrol_idx: int = 0
+        self.can_fetch = False
+        self._relay_frontiers: set[tuple] = set()
 
     def communicate(self, other):
         # Relay usa il proprio raggio (2) come soglia: raggiunge anche i Collector (raggio 1)
-        if abs(self.r - other.r) + abs(self.c - other.c) <= self.comm_radius:
-            self._merge_knowledge(other)
+        if abs(self.r - other.r) + abs(self.c - other.c) > self.comm_radius:
+            return
+        # Raccoglie la claimed_frontier dello Scout prima del merge
+        if getattr(other, 'claimed_frontier', None) is not None:
+            self._relay_frontiers.add(other.claimed_frontier)
+        # Ritrasmette le frontiere Scout accumulate all'altro agente (tipicamente Collector)
+        for f in self._relay_frontiers:
+            if f in other._unobserved:
+                other.peer_frontiers.add(f)
+        self._merge_knowledge(other)
+        # Rimuove le frontiere ormai osservate dal Relay stesso
+        self._relay_frontiers = {f for f in self._relay_frontiers if f in self._unobserved}
 
     def decide(self, env, agents: list = None):
-        if self.battery <= 0:
-            self.state = AgentState.DEAD
+        if super().decide(env):
             return
 
-        return_cost = self._cost_to_nearest_entrance(env)
-        if self.battery <= return_cost + self.EMERGENCY_MARGIN:
-            if self.state != AgentState.EMERGENCY:
-                self.state = AgentState.EMERGENCY
-                self._path = []
-            if not self._path:
-                self._path = self._path_to_nearest_entrance(env)
-            return
-
-        self.state = AgentState.EXPLORE
         if self._path:
             return
 
@@ -621,7 +564,7 @@ class Relay(Agent):
                 if self._path:
                     return
 
-        # Regola 2: pattuglia un diamante relativo alla dimensione della griglia
+        # Regola 2: pattugliamento a diamante
         g = self.local_map.shape[0]
         m = g // 2
         q = g // 4

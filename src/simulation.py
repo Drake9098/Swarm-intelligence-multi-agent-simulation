@@ -2,16 +2,33 @@ from environment import Environment
 from agent import Scout, Collector, Relay, AgentState
 
 class Simulation:
-    def __init__(self, json_path: str, max_ticks: int = 500):
+    def __init__(self, json_path: str, max_ticks: int = 500, config: str = "with_relay"):
         self.env = Environment(json_path)
         g = self.env.grid
-        self.agents = [
-            Scout(agent_id=0, quadrant=0, grid=g),
-            Scout(agent_id=1, quadrant=3, grid=g),
-            Relay(agent_id=2, grid=g),
-            Collector(agent_id=3, quadrant=1, strategy="east", grid=g),
-            Collector(agent_id=4, quadrant=2, strategy="west", grid=g),
-        ]
+        if config == "exploration":
+            self.agents = [
+                Scout(agent_id=0, quadrant=0, grid=g),
+                Scout(agent_id=1, quadrant=3, grid=g),
+                Scout(agent_id=2, quadrant=2, grid=g),
+                Collector(agent_id=3, quadrant=1, strategy="east", grid=g),
+                Collector(agent_id=4, quadrant=2, strategy="west", grid=g),
+            ]
+        elif config == "collection":
+            self.agents = [
+                Scout(agent_id=0, quadrant=0, grid=g),
+                Scout(agent_id=1, quadrant=3, grid=g),
+                Collector(agent_id=2, quadrant=1, strategy="east", grid=g),
+                Collector(agent_id=3, quadrant=2, strategy="west", grid=g),
+                Collector(agent_id=4, quadrant=0, strategy="east", grid=g),
+            ]
+        else:  # "with_relay"
+            self.agents = [
+                Scout(agent_id=0, quadrant=0, grid=g),
+                Scout(agent_id=1, quadrant=3, grid=g),
+                Relay(agent_id=2, grid=g),
+                Collector(agent_id=3, quadrant=1, strategy="east", grid=g),
+                Collector(agent_id=4, quadrant=2, strategy="west", grid=g),
+            ]
         self.max_ticks = max_ticks
         self.tick = 0
         self.log = []

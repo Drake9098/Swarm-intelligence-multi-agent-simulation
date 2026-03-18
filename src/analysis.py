@@ -84,12 +84,17 @@ def build_heatmap(log: list, grid_size: int = GRID_SIZE) -> np.ndarray:
 
 
 def build_energy_timeline(log: list) -> list:
-    """Restituisce la batteria media per tick [mean_tick0, mean_tick1, ...]."""
+    """Restituisce la somma totale di batteria residua per tick."""
     timeline = []
     for snapshot in log:
         batteries = [a["battery"] for a in snapshot["agents"]]
-        timeline.append(sum(batteries) / len(batteries))
+        timeline.append(sum(batteries))
     return timeline
+
+
+def build_objects_timeline(log: list) -> list:
+    """Restituisce gli oggetti consegnati cumulativi per tick."""
+    return [snapshot["objects_delivered"] for snapshot in log]
 
 
 # ---------------------------------------------------------------------------
@@ -97,8 +102,8 @@ def build_energy_timeline(log: list) -> list:
 # ---------------------------------------------------------------------------
 
 def save_results(metrics: dict, instance: str, output_dir: str = ".") -> str:
-    """Scrive results_X.json in output_dir. Restituisce il percorso del file."""
-    path = os.path.join(output_dir, f"results_{instance}.json")
+    """Scrive results.json in output_dir. Restituisce il percorso del file."""
+    path = os.path.join(output_dir, "results.json")
     with open(path, "w") as f:
         json.dump(metrics, f, indent=2)
     return path
@@ -109,33 +114,143 @@ def save_results(metrics: dict, instance: str, output_dir: str = ".") -> str:
 # ---------------------------------------------------------------------------
 
 def plot_heatmap(heatmap: np.ndarray, instance: str, output_dir: str = ".") -> str:
-    """Genera e salva heatmap_X.png. Restituisce il percorso del file."""
+    """Genera e salva heatmap.png. Restituisce il percorso del file."""
     fig, ax = plt.subplots(figsize=(7, 6))
     im = ax.imshow(heatmap, cmap="hot", interpolation="nearest")
     plt.colorbar(im, ax=ax, label="Visite")
     ax.set_title(f"Heatmap frequenza di visita — Istanza {instance}")
     ax.set_xlabel("Colonna")
     ax.set_ylabel("Riga")
-    path = os.path.join(output_dir, f"heatmap_{instance}.png")
+    path = os.path.join(output_dir, "heatmap.png")
     fig.tight_layout()
     fig.savefig(path, dpi=120)
     plt.close(fig)
     return path
 
 
-def plot_energy_timeline(timeline: list, instance: str, output_dir: str = ".") -> str:
-    """Genera e salva energy_X.png — batteria media nel tempo. Restituisce il percorso del file."""
-    fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(timeline, color="tab:blue", linewidth=1.5)
-    ax.set_title(f"Energia media degli agenti nel tempo — Istanza {instance}")
+# Stile visivo condiviso tra i grafici di confronto
+_CONFIG_COLORS = {
+    "exploration": "tab:blue",
+    "collection":  "tab:orange",
+    "with_relay":  "tab:green",
+}
+_INSTANCE_STYLES = {"A": "-", "B": "--"}
+
+
+def plot_comparison_energy(runs: list, output_path: str) -> str:
+    """Grafico con una linea per run: batteria totale residua nel tempo.
+
+    runs — lista di dict {"label": str, "instance": str, "config": str, "timeline": list}
+    """
+    fig, ax = plt.subplots(figsize=(11, 6))
+    for run in runs:
+        color = _CONFIG_COLORS.get(run["config"], "tab:gray")
+        ls    = _INSTANCE_STYLES.get(run["instance"], "-")
+        ax.plot(run["timeline"], color=color, linestyle=ls,
+                linewidth=1.8, label=run["label"])
+    ax.set_title("Energia residua totale — confronto configurazioni")
     ax.set_xlabel("Tick")
-    ax.set_ylabel("Batteria media rimanente")
+    ax.set_ylabel("Batteria totale residua")
+    ax.legend(loc="upper right", fontsize=9)
     ax.grid(True, alpha=0.3)
-    path = os.path.join(output_dir, f"energy_{instance}.png")
     fig.tight_layout()
-    fig.savefig(path, dpi=120)
+    fig.savefig(output_path, dpi=120)
     plt.close(fig)
-    return path
+    return output_path
+
+
+def plot_comparison_objects(runs: list, output_path: str) -> str:
+    """Grafico con una linea per run: oggetti consegnati cumulativi nel tempo.
+
+    runs — lista di dict {"label": str, "instance": str, "config": str, "timeline": list}
+    """
+    fig, ax = plt.subplots(figsize=(11, 6))
+    for run in runs:
+        color = _CONFIG_COLORS.get(run["config"], "tab:gray")
+        ls    = _INSTANCE_STYLES.get(run["instance"], "-")
+        ax.plot(run["timeline"], color=color, linestyle=ls,
+                linewidth=1.8, label=run["label"])
+    ax.set_title("Oggetti consegnati nel tempo — confronto configurazioni")
+    ax.set_xlabel("Tick")
+    ax.set_ylabel("Oggetti consegnati (cumulativo)")
+    ax.set_yticks(range(0, TOTAL_OBJECTS + 1))
+    ax.legend(loc="lower right", fontsize=9)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=120)
+    plt.close(fig)
+    return output_path
+
+
+# ---------------------------------------------------------------------------
+# Grafici subplot 2×N (sharex + sharey)
+# ---------------------------------------------------------------------------
+
+def _make_subplots_grid(runs: list, suptitle: str, ylabel: str,
+                        yticks: list | None, output_path: str) -> str:
+    """Griglia nrows×ncols di subplot (righe = istanze, colonne = config) con sharex e sharey.
+
+    runs — lista di dict {"label", "instance", "config", "timeline"}
+    """
+    instances = sorted({r["instance"] for r in runs})
+    configs   = sorted(
+        {r["config"] for r in runs},
+        key=lambda c: ["exploration", "collection", "with_relay"].index(c),
+    )
+    nrows, ncols = len(instances), len(configs)
+
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=(5 * ncols, 4 * nrows),
+        sharex=True, sharey=True,
+        squeeze=False,
+    )
+    fig.suptitle(suptitle, fontsize=13, fontweight="bold", y=1.01)
+
+    run_by_key = {(r["instance"], r["config"]): r for r in runs}
+
+    for row_i, instance in enumerate(instances):
+        for col_i, config in enumerate(configs):
+            ax  = axes[row_i][col_i]
+            run = run_by_key.get((instance, config))
+            if run is not None:
+                color = _CONFIG_COLORS.get(config, "tab:gray")
+                ax.plot(run["timeline"], color=color, linewidth=1.8)
+            ax.set_title(f"{instance} – {config.replace('_', ' ')}", fontsize=10)
+            ax.grid(True, alpha=0.3)
+            if yticks is not None:
+                ax.set_yticks(yticks)
+            if col_i == 0:
+                ax.set_ylabel(ylabel, fontsize=9)
+            if row_i == nrows - 1:
+                ax.set_xlabel("Tick", fontsize=9)
+
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_subplots_energy(runs: list, output_path: str) -> str:
+    """Griglia subplot per la batteria totale residua (sharex + sharey)."""
+    return _make_subplots_grid(
+        runs,
+        suptitle="Energia residua totale — subplot per configurazione",
+        ylabel="Batteria totale residua",
+        yticks=None,
+        output_path=output_path,
+    )
+
+
+def plot_subplots_objects(runs: list, output_path: str) -> str:
+    """Griglia subplot per gli oggetti consegnati (sharex + sharey)."""
+    return _make_subplots_grid(
+        runs,
+        suptitle="Oggetti consegnati nel tempo — subplot per configurazione",
+        ylabel="Oggetti consegnati",
+        yticks=list(range(0, TOTAL_OBJECTS + 1)),
+        output_path=output_path,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -144,19 +259,18 @@ def plot_energy_timeline(timeline: list, instance: str, output_dir: str = ".") -
 
 def run_analysis(log: list, instance: str, output_dir: str = ".",
                  grid_size: int = GRID_SIZE) -> dict:
-    """Calcola metriche, salva results_X.json, heatmap_X.png, energy_X.png.
+    """Calcola metriche, salva results.json e heatmap.png nel run_dir.
 
-    Restituisce il dizionario delle metriche.
+    I grafici aggregati (energia e oggetti) sono generati da run_all.py
+    dopo aver raccolto tutti i run. Restituisce il dizionario delle metriche.
     """
-    metrics  = compute_metrics(log)
-    heatmap  = build_heatmap(log, grid_size)
-    timeline = build_energy_timeline(log)
+    metrics = compute_metrics(log)
+    heatmap = build_heatmap(log, grid_size)
 
     json_path = save_results(metrics, instance, output_dir)
     hm_path   = plot_heatmap(heatmap, instance, output_dir)
-    en_path   = plot_energy_timeline(timeline, instance, output_dir)
 
-    print(f"[analysis] Istanza {instance}: {json_path}, {hm_path}, {en_path}")
+    print(f"[analysis] Istanza {instance}: {json_path}, {hm_path}")
     return metrics
 
 
@@ -185,16 +299,25 @@ def compare(metrics_a: dict, metrics_b: dict) -> None:
     print()
 
 
-def try_compare_with_other(metrics: dict, instance: str, output_dir: str = ".") -> None:
-    """Se esiste results_X.json per l'altra istanza, carica e confronta automaticamente."""
+def try_compare_with_other(metrics: dict, instance: str, experiments_dir: str = ".") -> None:
+    """Cerca il run più recente dell'altra istanza in experiments_dir e confronta le metriche."""
     other = "B" if instance == "A" else "A"
-    other_path = os.path.join(output_dir, f"results_{other}.json")
-    if not os.path.exists(other_path):
+    other_instance_dir = os.path.join(experiments_dir, other)
+    if not os.path.isdir(other_instance_dir):
         return
-    with open(other_path) as f:
-        other_metrics = json.load(f)
-    print(f"\n--- Confronto automatico A vs B ---")
-    if instance == "A":
-        compare(metrics, other_metrics)
-    else:
-        compare(other_metrics, metrics)
+    run_folders = sorted(
+        [d for d in os.listdir(other_instance_dir)
+         if os.path.isdir(os.path.join(other_instance_dir, d))],
+        reverse=True,
+    )
+    for folder in run_folders:
+        candidate = os.path.join(other_instance_dir, folder, "results.json")
+        if os.path.exists(candidate):
+            with open(candidate) as f:
+                other_metrics = json.load(f)
+            print(f"\n--- Confronto automatico A vs B (run: {folder}) ---")
+            if instance == "A":
+                compare(metrics, other_metrics)
+            else:
+                compare(other_metrics, metrics)
+            return
