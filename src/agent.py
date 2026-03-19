@@ -55,6 +55,7 @@ class Agent:
         self._cached_return_cost: int = 0
         self._last_cost_pos: tuple | None = None
         self.can_fetch: bool = True
+        self._yielded_objects: set[int] = set()
 
     @property
     def explore_strategy(self) -> str | None:
@@ -92,35 +93,6 @@ class Agent:
     # ------------------------------------------------------------------
     # Comunicazione
     # ------------------------------------------------------------------
-
-    def _merge_knowledge(self, other):
-        """Merge mappe e conoscenze con un altro agente (raggio già verificato dal chiamante)."""
-        mask_a = (self.local_map != UNKNOWN) & (other.local_map == UNKNOWN)
-        mask_b = (other.local_map != UNKNOWN) & (self.local_map == UNKNOWN)
-        other.local_map[mask_a] = self.local_map[mask_a]
-        self.local_map[mask_b] = other.local_map[mask_b]
-        self.known_gone_objects |= other.known_gone_objects
-        other.known_gone_objects = set(self.known_gone_objects)
-        for gid in self.known_gone_objects:
-            self.known_objects.pop(gid, None)
-            other.known_objects.pop(gid, None)
-        merged = {**other.known_objects, **self.known_objects}
-        self.known_objects = {k: v for k, v in merged.items() if k not in self.known_gone_objects}
-        other.known_objects = dict(self.known_objects)
-        merged_unobserved = self._unobserved & other._unobserved
-        self._unobserved = merged_unobserved
-        other._unobserved = set(merged_unobserved)
-        # Condivide claimed_frontier per la repulsione
-        if self.claimed_frontier and self.claimed_frontier in self._unobserved:
-            other.peer_frontiers.add(self.claimed_frontier)
-        if other.claimed_frontier and other.claimed_frontier in other._unobserved:
-            self.peer_frontiers.add(other.claimed_frontier)
-        self.peer_frontiers = {f for f in self.peer_frontiers if f in self._unobserved}
-        other.peer_frontiers = {f for f in other.peer_frontiers if f in other._unobserved}
-
-    def communicate(self, other):
-        if abs(self.r - other.r) + abs(self.c - other.c) <= min(self.comm_radius, other.comm_radius):
-            self._merge_knowledge(other)
 
     # ------------------------------------------------------------------
     # Pathfinding helpers
@@ -307,14 +279,25 @@ class Agent:
         if self.can_fetch:
             if self.state == AgentState.FETCH and self._path:
                 if self._fetch_target is not None and self._fetch_target in self.known_objects.values():
-                    return False
-                self._path = []
-                self._fetch_target = None
+                    # Interrompi se nel frattempo un peer più vicino ha preso il target
+                    target_id = next(
+                        (k for k, v in self.known_objects.items() if v == self._fetch_target), None
+                    )
+                    if target_id is not None and target_id in self._yielded_objects:
+                        self._path = []
+                        self._fetch_target = None
+                    else:
+                        return False
+                else:
+                    self._path = []
+                    self._fetch_target = None
             if not self._path and self.known_objects:
                 best_path = None
                 best_pos = None
-                candidates = sorted(self.known_objects.items(),
-                                    key=lambda kv: abs(kv[1][0] - self.r) + abs(kv[1][1] - self.c))[:3]
+                candidates = sorted(
+                    [(k, v) for k, v in self.known_objects.items() if k not in self._yielded_objects],
+                    key=lambda kv: abs(kv[1][0] - self.r) + abs(kv[1][1] - self.c),
+                )[:3]
                 for _, pos in candidates:
                     path = self._astar(env, pos)
                     if path:
@@ -447,11 +430,14 @@ class Collector(Agent):
         return best
 
     def decide(self, env):
-        # Early-fetch: se conosce oggetti ed è in fase di presidio (scatter già completato),
-        # azzera il path così super() può subito pianificare FETCH.
-        if (self.known_objects and self.can_fetch
+        # 1. Filtra gli oggetti: consideriamo solo quelli non ceduti ad altri peer
+        available_objs = [k for k in self.known_objects if k not in self._yielded_objects]
+
+        # 2. Opportunistic-fetch: se ci sono oggetti validi e stiamo viaggiando,
+        # interrompiamo subito la rotta (anche se lo scatter iniziale non è completato)
+        if (available_objs and self.can_fetch
                 and self.state == AgentState.EXPLORE
-                and self._path and self._scatter_done):
+                and self._path):
             self._path = []
 
         if super().decide(env):
@@ -511,14 +497,16 @@ class Collector(Agent):
 
 
 class Relay(Agent):
-    """Agente ponte: pattuiglia un diamante per incontrare Scout e raccogliere info,
-    poi si dirige verso i magazzini noti per incontrare i Collector e condividerle.
+    """Agente ponte: si posiziona dinamicamente nel punto medio tra Scout e Collector
+    per minimizzare i ritardi di comunicazione, poi si dirige verso i magazzini noti
+    per trasferire le info raccolte ai Collector.
 
-    Regola 1 — ho oggetti da condividere:
-        → vai verso l'ingresso del magazzino noto più vicino
-          (i Collector orbitano lì dopo lo scatter iniziale).
+    Regola 1 — conosce oggetti da condividere:
+        → vai verso l'ingresso del magazzino noto più vicino.
     Regola 2 — nessun oggetto noto:
-        → pattuglia il diamante per incrociare Scout con nuove informazioni.
+        → raggiunge il baricentro tra posizione media degli Scout e dei Collector attivi,
+          ricalcolando il target solo quando il centroide si sposta di più di 4 celle
+          (anti-oscillazione). Fallback al pattugliamento a diamante se agents=None.
     """
     EMERGENCY_MARGIN = 5
 
@@ -528,21 +516,20 @@ class Relay(Agent):
         self._patrol_idx: int = 0
         self.can_fetch = False
         self._relay_frontiers: set[tuple] = set()
+        self._bridge_target: tuple | None = None
 
-    def communicate(self, other):
-        # Relay usa il proprio raggio (2) come soglia: raggiunge anche i Collector (raggio 1)
-        if abs(self.r - other.r) + abs(self.c - other.c) > self.comm_radius:
-            return
-        # Raccoglie la claimed_frontier dello Scout prima del merge
-        if getattr(other, 'claimed_frontier', None) is not None:
-            self._relay_frontiers.add(other.claimed_frontier)
-        # Ritrasmette le frontiere Scout accumulate all'altro agente (tipicamente Collector)
-        for f in self._relay_frontiers:
-            if f in other._unobserved:
-                other.peer_frontiers.add(f)
-        self._merge_knowledge(other)
-        # Rimuove le frontiere ormai osservate dal Relay stesso
-        self._relay_frontiers = {f for f in self._relay_frontiers if f in self._unobserved}
+    def _compute_bridge_target(self, agents: list) -> tuple | None:
+        """Calcola il punto medio (baricentro) tra la posizione media degli Scout attivi
+        e quella media dei Collector attivi. Restituisce None se uno dei due gruppi è vuoto."""
+        scouts     = [a for a in agents if getattr(a, 'role', '') == 'scout'     and a.state != AgentState.DEAD]
+        collectors = [a for a in agents if getattr(a, 'role', '') == 'collector' and a.state != AgentState.DEAD]
+        if not scouts or not collectors:
+            return None
+        sc_r = sum(a.r for a in scouts)     / len(scouts)
+        sc_c = sum(a.c for a in scouts)     / len(scouts)
+        co_r = sum(a.r for a in collectors) / len(collectors)
+        co_c = sum(a.c for a in collectors) / len(collectors)
+        return (int((sc_r + co_r) / 2), int((sc_c + co_c) / 2))
 
     def decide(self, env, agents: list = None):
         if super().decide(env):
@@ -564,7 +551,29 @@ class Relay(Agent):
                 if self._path:
                     return
 
-        # Regola 2: pattugliamento a diamante
+        # Regola 2a: posizionamento dinamico come ponte Scout↔Collector.
+        # Il target viene ricalcolato solo quando il baricentro si sposta di più di 4 celle
+        # per evitare oscillazioni tick-per-tick.
+        if agents:
+            bridge = self._compute_bridge_target(agents)
+            if bridge is not None:
+                if (self._bridge_target is None
+                        or abs(bridge[0] - self._bridge_target[0])
+                           + abs(bridge[1] - self._bridge_target[1]) > 4):
+                    self._bridge_target = bridge
+                if abs(self.r - self._bridge_target[0]) + abs(self.c - self._bridge_target[1]) > 2:
+                    self._path = a_star(
+                        start=(self.r, self.c), goal=self._bridge_target,
+                        is_walkable_fn=lambda r, c, fr, fc: self._local_is_walkable(env, r, c, fr, fc)
+                    ) or []
+                # Se A* fallisce verso il bridge, esplora la frontiera più vicina
+                if not self._path:
+                    frontier = self._nearest_frontier()
+                    if frontier:
+                        self._path = self._astar(env, frontier)
+                return
+
+        # Regola 2b: fallback a pattugliamento a diamante (agents non disponibili)
         g = self.local_map.shape[0]
         m = g // 2
         q = g // 4
