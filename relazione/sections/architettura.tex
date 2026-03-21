@@ -1,0 +1,108 @@
+\section{Architettura del sistema}
+\label{sec:architettura}
+
+\subsection{Modello dell'ambiente}
+
+L'ambiente è implementato dalla classe \texttt{Environment} e rappresenta la griglia tramite una matrice $25 \times 25$ di interi. Le celle sono classificate con i seguenti tipi:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Valore} & \textbf{Tipo} & \textbf{Descrizione} \\
+\midrule
+0 & \texttt{EMPTY}    & Cella libera percorribile \\
+1 & \texttt{WALL}     & Ostacolo invalicabile \\
+2 & \texttt{WAREHOUSE}& Interno del magazzino \\
+3 & \texttt{ENTRANCE} & Ingresso unidirezionale al magazzino \\
+4 & \texttt{EXIT}     & Uscita unidirezionale dal magazzino \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+I magazzini hanno porte direzionali: l'ingresso (\emph{entrance}) è attraversabile solo entrando nel magazzino, l'uscita (\emph{exit}) solo uscendo. La direzione è determinata dal lato della mappa su cui si trova il magazzino (\texttt{top}, \texttt{bottom}, \texttt{left}, \texttt{right}). Questa scelta modella vincoli logistici realistici, costringendo i Collector a pianificare percorsi distinti per accesso e uscita.
+
+Gli oggetti hanno un ciclo di vita gestito interamente dall'environment:
+\begin{itemize}
+  \item \textbf{Unclaimed}: visibile e prelevabile;
+  \item \textbf{Claimed}: riservato a un Collector (il \emph{claim} è esclusivo per evitare duplicazione degli sforzi);
+  \item \textbf{Delivered}: consegnato a un magazzino, rimosso dalla mappa.
+\end{itemize}
+
+\subsection{Architettura degli agenti}
+
+Tutti gli agenti ereditano dalla classe base \texttt{Agent}, che implementa:
+
+\begin{itemize}
+  \item Una \textbf{mappa locale} $25 \times 25$ inizializzata con la griglia reale (struttura della mappa nota fin dall'inizio); un insieme \texttt{\_unobserved} traccia le celle non ancora fisicamente visitate, usato per guidare la scansione alla ricerca di oggetti;
+  \item Un \textbf{registro degli oggetti noti} (\texttt{known\_objects}), dizionario che mappa posizione $\to$ stato;
+  \item Una \textbf{batteria} con capacità 500, decrementata di 1 ad ogni passo; al raggiungimento della soglia di emergenza l'agente torna al magazzino più vicino;
+  \item Una \textbf{macchina a stati finiti} (FSM) per il processo decisionale.
+\end{itemize}
+
+\subsubsection{Macchina a stati finiti}
+
+Ogni agente ad ogni tick esegue il ciclo:
+\[
+\texttt{observe()} \;\to\; \texttt{communicate()} \;\to\; \texttt{decide()} \;\to\; \texttt{act()}
+\]
+
+Gli stati della FSM sono:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Stato} & \textbf{Descrizione} \\
+\midrule
+\texttt{EXPLORE}   & Navigazione verso frontiere inesplorate \\
+\texttt{FETCH}     & Raggiungimento di un oggetto noto per prelevarlo \\
+\texttt{DELIVER}   & Trasporto dell'oggetto al magazzino più vicino \\
+\texttt{EMERGENCY} & Rientro urgente al magazzino per batteria critica \\
+\texttt{DEAD}      & Agente inattivo (batteria esaurita lontano da magazzino) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La transizione prioritaria è: \texttt{EMERGENCY} $>$ \texttt{DELIVER} $>$ \texttt{FETCH} $>$ \texttt{EXPLORE}. Lo stato di emergenza viene triggerato quando la batteria residua è inferiore alla distanza stimata fino al magazzino più vicino più un margine di sicurezza.
+
+\subsection{Ruoli degli agenti}
+
+Il sistema supporta tre ruoli distinti con parametri differenti:
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Ruolo} & \textbf{Raggio visivo} & \textbf{Raggio comm.} & \textbf{Può raccogliere} & \textbf{Strategia} \\
+\midrule
+Scout     & 3 & 2 & No  & Repulsione dai pari \\
+Collector & 2 & 1 & Sì  & Garrison + burst \\
+Relay     & 2 & 2 & No  & Pattuglia centrale \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Scout.} Ha il raggio visivo maggiore (3 celle) e si distribuisce sulla mappa usando una strategia di \emph{repulsione}: seleziona la frontiera inesplorata che massimizza la distanza dagli altri Scout, garantendo una copertura uniforme della mappa. All'avvio, gli Scout vengono assegnati a quadranti distinti (angoli della griglia) per massimizzare l'esplorazione distribuita fin dal primo tick.
+
+\paragraph{Collector.} Ha un raggio visivo più ridotto (2 celle) ma è l'unico agente in grado di raccogliere oggetti (\texttt{can\_fetch=True}). Presidia inizialmente una zona di stazionamento (\emph{garrison}) vicino a un ingresso del magazzino, da cui esegue brevi sessioni di esplorazione locale per scoprire oggetti. Il margine di emergenza è aumentato (20 passi) per garantire il rientro anche quando porta un oggetto.
+
+\paragraph{Relay.} Introdotto nella terza configurazione, il Relay non raccoglie oggetti ma funge da nodo di comunicazione intermedio. Pattuglia un percorso a diamante attraverso il centro della mappa, massimizzando le intersezioni sia con gli Scout (che esplorano le periferie) sia con i Collector (che presidiano le zone magazzino). Quando acquisisce informazioni su oggetti scoperti dagli Scout, si dirige verso l'ingresso del magazzino più vicino per trasmetterle ai Collector.
+
+\subsection{Struttura del codice}
+
+Il progetto è organizzato in moduli distinti con responsabilità separate:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{Modulo} & \textbf{Responsabilità} \\
+\midrule
+\texttt{environment.py}   & Modello della griglia, ciclo di vita degli oggetti \\
+\texttt{agent.py}         & Classi Agent, Scout, Collector, Relay; FSM \\
+\texttt{pathfinding.py}   & Algoritmo A* su mappa locale \\
+\texttt{simulation.py}    & Loop di simulazione, logging \\
+\texttt{visualization.py} & Visualizzazione real-time con Pygame \\
+\texttt{analysis.py}      & Metriche, heatmap, grafici comparativi \\
+\texttt{main.py}          & Entry point CLI \\
+\texttt{run\_all.py}      & Batch runner per tutti i 6 scenari \\
+\bottomrule
+\end{tabular}
+\end{center}

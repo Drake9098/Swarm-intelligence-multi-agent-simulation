@@ -1,0 +1,80 @@
+\section{Evoluzione delle configurazioni}
+\label{sec:configurazioni}
+
+Il design del sistema ha seguito un percorso iterativo in cui ogni configurazione ha affrontato i limiti di quella precedente. Il team di agenti è sempre composto da 5 unità, ma la distribuzione dei ruoli cambia radicalmente le performance osservate.
+
+\subsection{Configurazione 1: Exploration}
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+\textbf{Ruolo} & \textbf{Quantità} \\
+\midrule
+Scout     & 3 \\
+Collector & 2 \\
+Relay     & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La prima iterazione puntava sulla \textbf{massima copertura della mappa}, con 3 Scout e soli 2 Collector. L'ipotesi di partenza era che la fase limitante del processo fosse la scoperta degli oggetti: una volta noti tutti i target, i Collector avrebbero potuto raccoglierli rapidamente.
+
+\paragraph{Limiti osservati.} L'ipotesi si è rivelata parzialmente errata. Nelle esecuzioni sperimentali, la mappa viene esplorata in tempi ragionevoli dai 3 Scout, ma i \textbf{2 soli Collector non riescono a sfruttare appieno l'informazione prodotta}: devono coprire da soli tutti e 10 gli oggetti con percorsi lunghi, senza supporto aggiuntivo per la raccolta. Inoltre, il canale di comunicazione Scout $\to$ Collector è indiretto e dipende dall'incontro fisico casuale tra agenti, il che introduce ritardi significativi: uno Scout può aver scoperto un oggetto ma il Collector relativo non ne viene a conoscenza fino a molto tempo dopo.
+
+Il risultato è un numero di tick molto elevato rispetto alle configurazioni successive (251 tick su Mappa~A, 153 su Mappa~B), con energia per oggetto quasi doppia rispetto agli altri approcci.
+
+\subsection{Configurazione 2: Collection}
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+\textbf{Ruolo} & \textbf{Quantità} \\
+\midrule
+Scout     & 2 \\
+Collector & 3 \\
+Relay     & 0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La seconda iterazione inverte la proporzione: 2 Scout e 3 Collector. L'obiettivo è avere più \emph{worker} disponibili per la raccolta, sacrificando un'unità di esplorazione.
+
+\paragraph{Miglioramento.} I risultati migliorano drasticamente: 129 tick su Mappa~A, 117 su Mappa~B. Con 3 Collector che presidiano zone diverse della griglia (\emph{garrison} su ingressi diversi), gli oggetti vengono raccolti in parallelo non appena la loro posizione diventa nota. L'energia per oggetto si dimezza rispetto alla configurazione precedente.
+
+\paragraph{Limite residuo.} Il problema della propagazione dell'informazione rimane. Con 2 soli Scout, la scoperta di oggetti in zone lontane dai Collector può tardare. Soprattutto su Mappa~B (più ostacoli), gli Scout devono percorrere corridoi complessi e l'incontro fisico con i Collector non è garantito in tempi brevi. La comunicazione diretta Scout~$\leftrightarrow$~Collector dipende dalla topologia della mappa e dalla traiettoria degli agenti.
+
+\subsection{Configurazione 3: With Relay}
+
+\begin{center}
+\begin{tabular}{lc}
+\toprule
+\textbf{Ruolo} & \textbf{Quantità} \\
+\midrule
+Scout     & 2 \\
+Collector & 2 \\
+Relay     & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La terza configurazione introduce il ruolo \textbf{Relay}: un agente specializzato esclusivamente nella \emph{propagazione dell'informazione}. Non raccoglie oggetti, non esplora sistematicamente le frontiere: pattuglia una traiettoria a diamante attraverso il centro della mappa, posizionandosi come nodo intermedio nella catena di comunicazione.
+
+\paragraph{Motivazione del design.} Lo scenario tipico senza Relay è: uno Scout scopre un oggetto in periferia, ma per trasmettere questa informazione a un Collector deve avvicinarsi fisicamente entro 1 cella di \emph{comm\_radius} (il Collector ha raggio 1). Questo non sempre avviene in tempi brevi.
+
+Il Relay risolve il problema aumentando il ``raggiungimento'' della rete: avendo \emph{comm\_radius} 2 (uguale agli Scout), può raccogliere informazioni dagli Scout nelle zone centrali-periferiche e trasmetterle ai Collector vicino ai magazzini in un secondo passaggio. In pratica il Relay trasforma la topologia di comunicazione da un grafo casuale dipendente dalle traiettorie a una struttura \textbf{hub-and-spoke} dove il centro funge da punto di incontro garantito.
+
+\paragraph{Trade-off.} Si perde un Collector (si passa da 3 a 2), il che riduce il parallelismo nella raccolta. Il Relay è quindi giustificato solo se il \emph{guadagno nella velocità di propagazione} delle informazioni compensa la perdita di capacità di raccolta. I risultati sperimentali (Sezione~\ref{sec:risultati}) mostrano che questo trade-off è favorevole su entrambe le mappe, ma con intensità diversa a seconda della complessità topologica.
+
+\subsection{Tabella riassuntiva delle configurazioni}
+
+\begin{center}
+\begin{tabular}{lcccl}
+\toprule
+\textbf{Configurazione} & \textbf{Scout} & \textbf{Collector} & \textbf{Relay} & \textbf{Focus} \\
+\midrule
+Exploration & 3 & 2 & 0 & Copertura mappa \\
+Collection  & 2 & 3 & 0 & Raccolta parallela \\
+With Relay  & 2 & 2 & 1 & Info routing \\
+\bottomrule
+\end{tabular}
+\end{center}

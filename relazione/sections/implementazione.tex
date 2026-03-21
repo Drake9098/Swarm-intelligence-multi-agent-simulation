@@ -1,0 +1,77 @@
+\section{Scelte implementative}
+\label{sec:implementazione}
+
+\subsection{Mappa locale e conoscenza parziale}
+
+Ogni agente mantiene una propria rappresentazione interna dell'ambiente: una matrice $25 \times 25$ inizializzata con la \textbf{griglia reale} caricata dal file JSON di input. Tutti gli agenti conoscono quindi fin dall'inizio la posizione di muri, corridoi, magazzini e porte direzionali: la struttura della mappa non è mai parzialmente osservabile.
+
+La vera informazione nascosta sono le \textbf{posizioni degli oggetti}: questi non fanno parte della griglia ma sono gestiti separatamente dall'environment. Un oggetto viene reso visibile a un agente solo quando \texttt{observe()} lo rilevisce all'interno del raggio visivo (\texttt{reveal\_object\_at}), dopodiché viene aggiunto al registro locale \texttt{known\_objects}.
+
+Per tracciare cosa rimane da esplorare, ogni agente mantiene un insieme \texttt{\_unobserved}: l'insieme di tutte le celle non-muro che non sono ancora state attraversate entro il raggio visivo. Gli Scout si dirigono verso queste celle non per scoprire la topologia (già nota), ma per \textbf{passarci abbastanza vicino da rivelare eventuali oggetti nascosti}. La fase di esplorazione è dunque in realtà una fase di \emph{scansione} del territorio alla ricerca di oggetti.
+
+\subsection{Comunicazione peer-to-peer}
+
+Quando due agenti si trovano entro il raggio di comunicazione (\emph{comm\_radius}), eseguono un \emph{merge} bidirezionale delle rispettive conoscenze. Poiché la struttura della mappa è già nota a tutti, il merge riguarda essenzialmente due informazioni:
+
+\begin{itemize}
+  \item Il \textbf{registro degli oggetti noti} (\texttt{known\_objects}): gli oggetti osservati da uno Scout vengono trasmessi all'altro agente, rendendoli immediatamente disponibili per il fetch;
+  \item L'\textbf{insieme delle celle non ancora visitate} (\texttt{\_unobserved}): viene sostituito con l'intersezione dei due insiemi, così le celle già scansionate da uno non vengono ri-visitate dall'altro, evitando ridondanza.
+\end{itemize}
+
+Vengono anche condivisi i \texttt{claimed\_frontier}, le celle-obiettivo già prese in carico, così gli Scout si coordinano per non dirigersi verso la stessa zona.
+
+Questa comunicazione locale -- senza infrastruttura centralizzata -- è il meccanismo attraverso cui l'intelligenza collettiva emerge: un Scout che ha scansionato il quadrante nord-est trasferisce immediatamente quella conoscenza a qualsiasi agente che gli si avvicini.
+
+\subsection{Pathfinding con A*}
+
+Il modulo \texttt{pathfinding.py} implementa l'algoritmo A* con euristica di distanza di Manhattan. L'algoritmo riceve una funzione \texttt{is\_walkable\_fn} che opera sulla mappa locale dell'agente anziché sulla mappa reale: questo garantisce che la pianificazione sia coerente con la conoscenza parziale disponibile.
+
+La scelta di A* rispetto ad algoritmi più semplici (BFS, greedy) è motivata dalla necessità di:
+\begin{itemize}
+  \item Gestire rotte ottimali in presenza di ostacoli complessi e passaggi stretti;
+  \item Rispettare i vincoli direzionali di ingresso/uscita dei magazzini;
+  \item Operare efficientemente su una griglia di dimensione $25 \times 25$ (625 celle), dove BFS sarebbe comunque accettabile, ma A* offre un margine migliore in scenari con molti muri.
+\end{itemize}
+
+Quando A* non trova un percorso (es. la mappa locale non ha ancora rivelato il collegamento verso la destinazione), l'agente si sposta casualmente verso la destinazione in attesa di scoprire nuove celle.
+
+\subsection{Strategia di esplorazione degli Scout}
+
+Gli Scout adottano una strategia di \emph{coverage-based scanning} con repulsione inter-agente. L'obiettivo è selezionare la cella non ancora visitata (\texttt{\_unobserved}) che:
+\begin{enumerate}
+  \item È raggiungibile tramite A*;
+  \item Massimizza la distanza media dagli altri Scout attivi.
+\end{enumerate}
+
+Questo garantisce una \textbf{scansione uniforme e non ridondante} dell'area. Senza repulsione, più Scout tenderebbero a convergere sulle stesse zone, lasciando ampie aree non scansionate e quindi con oggetti non ancora scoperti.
+
+All'avvio, gli Scout vengono assegnati a quadranti distinti della griglia (angolo superiore-sinistro, superiore-destro, ecc.) mediante un target iniziale fisso, accelerando la diversificazione geografica nei primi tick.
+
+\subsection{Gestione della batteria ed emergenza}
+
+Ogni agente tiene traccia della batteria residua e calcola ad ogni tick la distanza stimata fino al magazzino più vicino accessibile. Se:
+\[
+\text{batteria} \leq \text{distanza\_magazzino} + \text{margine\_sicurezza}
+\]
+l'agente entra in stato \texttt{EMERGENCY} e abbandona il task corrente per tornare al magazzino, indipendentemente da ciò che stava facendo (incluso trasportare un oggetto).
+
+Il margine di sicurezza è differenziato per ruolo: i Collector hanno un margine maggiore (20 passi) rispetto agli Scout (10 passi), poiché il rischio di perdere un oggetto in transito è più costoso del rischio di perdere uno Scout esploratore.
+
+Gli agenti che muoiono lontano da un magazzino (batteria zero senza essere rientrati) vengono marcati come \texttt{DEAD} e non emettono più azioni, ma le loro ultime posizioni rimangono visibili nella visualizzazione per debug.
+
+\subsection{Visualizzazione real-time}
+
+La visualizzazione Pygame mostra la mappa dal punto di vista dell'\textbf{unione delle mappe locali} di tutti gli agenti, cioè ciò che il collettivo conosce nell'istante corrente. Le celle ancora \texttt{UNKNOWN} appaiono in grigio scuro. Questo permette di osservare l'esplorazione collettiva emergere tick per tick.
+
+Ogni agente è rappresentato con un colore specifico (verde per Scout, arancione per Collector, viola per Relay, grigio per Dead), e le celle di ingresso/uscita dei magazzini mostrano frecce direzionali. Il pannello laterale mostra le metriche in tempo reale: tick corrente, batteria di ciascun agente, oggetti consegnati e rimanenti.
+
+\subsection{Logging e analisi post-simulazione}
+
+Ogni esecuzione produce:
+\begin{itemize}
+  \item \textbf{\texttt{simulation\_log.json}}: snapshot completo ad ogni tick (posizioni agenti, stati, oggetti residui);
+  \item \textbf{\texttt{results.json}}: metriche scalari aggregate (ticks totali, energia media per agente, energia per oggetto, ticks per oggetto);
+  \item \textbf{\texttt{heatmap.png}}: mappa di calore della frequenza di visita per cella, aggregata su tutti gli agenti e tutti i tick.
+\end{itemize}
+
+Il modulo \texttt{run\_all.py} esegue in sequenza tutti e 6 i scenari (2 mappe $\times$ 3 configurazioni) in modalità headless e produce al termine quattro grafici comparativi aggregati.

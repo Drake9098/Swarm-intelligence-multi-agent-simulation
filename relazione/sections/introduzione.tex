@@ -1,0 +1,32 @@
+\section{Introduzione}
+
+Il progetto implementa una simulazione di \emph{swarm intelligence} in cui un gruppo di agenti autonomi coopera per risolvere un problema di raccolta e consegna su una mappa a griglia. Il sistema si colloca nella tradizione dei sistemi multi-agente stigmergici e, più in generale, nell'ambito dei robot collettivi che operano in ambienti parzialmente osservabili senza un coordinatore centralizzato.
+
+\subsection{Obiettivo del problema}
+
+L'ambiente è una griglia $25 \times 25$ che rappresenta un magazzino industriale. La griglia contiene:
+\begin{itemize}
+  \item \textbf{Celle libere} -- percorribili dagli agenti;
+  \item \textbf{Ostacoli} -- celle occupate da muri, non percorribili;
+  \item \textbf{4 magazzini} posizionati ai quattro lati della griglia, ciascuno con un'ingresso (\emph{entrance}) e un'uscita (\emph{exit}) direzionali;
+  \item \textbf{10 oggetti} sparsi nella mappa, da raccogliere e consegnare ai magazzini.
+\end{itemize}
+
+Il compito del sistema multi-agente è recuperare tutti e 10 gli oggetti nel minor numero possibile di \emph{tick} (passi di simulazione), minimizzando al contempo il consumo energetico complessivo. Ogni agente dispone di una batteria con capacità fissa, che si riduce di un'unità ad ogni movimento. Se un agente esaurisce la batteria lontano da un magazzino, viene dichiarato \emph{dead} e cessa di operare.
+
+\subsection{Motivazione del progetto}
+
+La sfida principale del problema è la \textbf{conoscenza parziale dell'ambiente}: ogni agente vede solo le celle entro un certo raggio visivo e costruisce una mappa locale che inizialmente è completamente ignota. La cooperazione emerge dalla condivisione delle informazioni quando due agenti sono abbastanza vicini da comunicare (\emph{communication radius}).
+
+Il progetto evolve attraverso tre configurazioni successive che rappresentano l'iterazione del design:
+\begin{enumerate}
+  \item \textbf{Exploration}: priorità all'esplorazione, con più agenti Scout;
+  \item \textbf{Collection}: priorità alla raccolta, con più agenti Collector;
+  \item \textbf{With Relay}: architettura a tre ruoli con un Relay che funge da ponte informativo tra Scout e Collector.
+\end{enumerate}
+
+Sono state testate due istanze di mappa con densità di ostacoli crescente (Mappa~A e Mappa~B), per analizzare come la struttura topologica dell'ambiente influenzi le performance delle diverse configurazioni.
+
+\subsection{Struttura della relazione}
+
+La relazione è organizzata come segue: la Sezione~\ref{sec:architettura} descrive l'architettura del sistema; la Sezione~\ref{sec:implementazione} approfondisce le scelte implementative chiave; la Sezione~\ref{sec:configurazioni} illustra l'evoluzione delle configurazioni degli agenti con la relativa motivazione; la Sezione~\ref{sec:risultati} presenta i risultati sperimentali con analisi dei grafici e delle heatmap; la Sezione~\ref{sec:conclusioni} trae le conclusioni.
