@@ -518,6 +518,11 @@ class Relay(Agent):
         self._relay_frontiers: set[tuple] = set()
         self._bridge_target: tuple | None = None
 
+    @property
+    def explore_strategy(self) -> str:
+        """Short UI label (full logic in decide / class docstring)."""
+        return "Midpoint"
+
     def _compute_bridge_target(self, agents: list) -> tuple | None:
         """Calcola il punto medio (baricentro) tra la posizione media degli Scout attivi
         e quella media dei Collector attivi. Restituisce None se uno dei due gruppi è vuoto."""

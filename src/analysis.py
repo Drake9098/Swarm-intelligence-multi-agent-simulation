@@ -176,7 +176,7 @@ def plot_comparison_energy(runs: list, output_path: str) -> str:
     fig, ax = plt.subplots(figsize=(11, 6))
     for run in runs:
         color = _CONFIG_COLORS.get(run["config"], "tab:gray")
-        ls    = _INSTANCE_STYLES.get(run["instance"], "-")
+        ls = _INSTANCE_STYLES.get(run["instance"], "-")
         ax.plot(run["timeline"], color=color, linestyle=ls,
                 linewidth=1.8, label=run["label"])
     ax.set_title("Energia residua totale — confronto configurazioni")
@@ -198,7 +198,7 @@ def plot_comparison_objects(runs: list, output_path: str) -> str:
     fig, ax = plt.subplots(figsize=(11, 6))
     for run in runs:
         color = _CONFIG_COLORS.get(run["config"], "tab:gray")
-        ls    = _INSTANCE_STYLES.get(run["instance"], "-")
+        ls = _INSTANCE_STYLES.get(run["instance"], "-")
         ax.plot(run["timeline"], color=color, linestyle=ls,
                 linewidth=1.8, label=run["label"])
     ax.set_title("Oggetti consegnati nel tempo — confronto configurazioni")
