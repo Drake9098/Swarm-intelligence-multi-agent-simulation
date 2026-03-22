@@ -1,6 +1,10 @@
 """run_all.py — Esegue tutte le combinazioni (istanza × config) in modalità headless
 e genera i grafici di confronto aggregati.
 
+All'avvio svuota experiments/ e riscrive layout fisso (nessun timestamp):
+  experiments/<A|B>/<exploration|collection|with_relay>/{simulation_log.json,results.json,heatmap.png}
+  experiments/comparison_{energy,objects}.png, subplots_{energy,objects}.png
+
 Uso:
     python run_all.py                  # tutte le 6 combinazioni
     python run_all.py --ticks 300      # limite tick personalizzato
@@ -14,35 +18,27 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
 from itertools import product
 
 # Aggiunge src/ al path per importare analysis
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from analysis import (
+    AGG_COMPARISON_ENERGY,
+    AGG_COMPARISON_OBJECTS,
+    AGG_SUBPLOTS_ENERGY,
+    AGG_SUBPLOTS_OBJECTS,
     build_energy_timeline,
     build_objects_timeline,
+    clear_experiments_directory,
     plot_comparison_energy,
     plot_comparison_objects,
     plot_subplots_energy,
     plot_subplots_objects,
+    run_output_dir,
 )
 
 INSTANCES = ["A", "B"]
 CONFIGS   = ["exploration", "collection", "with_relay"]
-
-
-def find_latest_run(experiments_dir: str, instance: str, config: str) -> str | None:
-    """Restituisce il percorso dell'ultimo run folder per (instance, config), o None."""
-    inst_dir = os.path.join(experiments_dir, instance)
-    if not os.path.isdir(inst_dir):
-        return None
-    candidates = sorted(
-        [d for d in os.listdir(inst_dir)
-         if d.endswith(f"_{config}") and os.path.isdir(os.path.join(inst_dir, d))],
-        reverse=True,
-    )
-    return os.path.join(inst_dir, candidates[0]) if candidates else None
 
 
 def main():
@@ -59,7 +55,9 @@ def main():
 
     base_dir        = os.path.dirname(os.path.abspath(__file__))
     experiments_dir = os.path.join(base_dir, "experiments")
-    batch_ts        = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    clear_experiments_directory(experiments_dir)
+    print(f"  [experiments] cartella svuotata: {experiments_dir}\n")
 
     print(f"╔══ Swarm batch runner ══════════════════════════════════╗")
     print(f"  Istanze   : {args.instances}")
@@ -115,8 +113,8 @@ def main():
     objects_runs = []
 
     for instance, config in product(args.instances, args.configs):
-        run_dir = find_latest_run(experiments_dir, instance, config)
-        if run_dir is None:
+        run_dir = run_output_dir(experiments_dir, instance, config)
+        if not os.path.isdir(run_dir):
             print(f"  [warn] run non trovato: {instance}/{config} — saltato")
             continue
         log_path = os.path.join(run_dir, "simulation_log.json")
@@ -141,10 +139,10 @@ def main():
         })
 
     if energy_runs:
-        out_energy       = os.path.join(experiments_dir, f"comparison_energy_{batch_ts}.png")
-        out_objects      = os.path.join(experiments_dir, f"comparison_objects_{batch_ts}.png")
-        out_energy_grid  = os.path.join(experiments_dir, f"subplots_energy_{batch_ts}.png")
-        out_objects_grid = os.path.join(experiments_dir, f"subplots_objects_{batch_ts}.png")
+        out_energy       = os.path.join(experiments_dir, AGG_COMPARISON_ENERGY)
+        out_objects      = os.path.join(experiments_dir, AGG_COMPARISON_OBJECTS)
+        out_energy_grid  = os.path.join(experiments_dir, AGG_SUBPLOTS_ENERGY)
+        out_objects_grid = os.path.join(experiments_dir, AGG_SUBPLOTS_OBJECTS)
 
         plot_comparison_energy(energy_runs,       out_energy)
         plot_comparison_objects(objects_runs,     out_objects)

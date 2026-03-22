@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 
 import numpy as np
 import matplotlib
@@ -11,6 +12,36 @@ import matplotlib.pyplot as plt
 GRID_SIZE = 25
 INITIAL_BATTERY = 500
 TOTAL_OBJECTS = 10
+
+# Nomi fissi per i grafici aggregati (nessun timestamp → path stabili per LaTeX / report)
+AGG_COMPARISON_ENERGY = "comparison_energy.png"
+AGG_COMPARISON_OBJECTS = "comparison_objects.png"
+AGG_SUBPLOTS_ENERGY = "subplots_energy.png"
+AGG_SUBPLOTS_OBJECTS = "subplots_objects.png"
+
+
+def clear_experiments_directory(experiments_dir: str) -> None:
+    """Rimuove tutto il contenuto di experiments_dir (file e sottocartelle), poi ricrea la cartella.
+
+    Da chiamare una sola volta all'inizio di un batch completo (es. run_all.py), non da ogni
+    subprocess main.py, altrimenti si cancellerebbero i run già salvati nella stessa sessione.
+    """
+    if os.path.isdir(experiments_dir):
+        for name in os.listdir(experiments_dir):
+            path = os.path.join(experiments_dir, name)
+            try:
+                if os.path.isfile(path) or os.path.islink(path):
+                    os.remove(path)
+                elif os.path.isdir(path):
+                    shutil.rmtree(path)
+            except OSError as e:
+                print(f"[analysis] avviso: impossibile rimuovere {path}: {e}")
+    os.makedirs(experiments_dir, exist_ok=True)
+
+
+def run_output_dir(experiments_dir: str, instance: str, config: str) -> str:
+    """Cartella fissa per un run: experiments/<A|B>/<exploration|collection|with_relay>/"""
+    return os.path.join(experiments_dir, instance, config)
 
 
 # ---------------------------------------------------------------------------
@@ -299,25 +330,23 @@ def compare(metrics_a: dict, metrics_b: dict) -> None:
     print()
 
 
-def try_compare_with_other(metrics: dict, instance: str, experiments_dir: str = ".") -> None:
-    """Cerca il run più recente dell'altra istanza in experiments_dir e confronta le metriche."""
-    other = "B" if instance == "A" else "A"
-    other_instance_dir = os.path.join(experiments_dir, other)
-    if not os.path.isdir(other_instance_dir):
+def try_compare_with_other(
+    metrics: dict,
+    instance: str,
+    experiments_dir: str = ".",
+    config: str | None = None,
+) -> None:
+    """Confronta con l'altra istanza usando lo stesso config nella struttura fissa experiments/<A|B>/<config>/."""
+    if not config:
         return
-    run_folders = sorted(
-        [d for d in os.listdir(other_instance_dir)
-         if os.path.isdir(os.path.join(other_instance_dir, d))],
-        reverse=True,
-    )
-    for folder in run_folders:
-        candidate = os.path.join(other_instance_dir, folder, "results.json")
-        if os.path.exists(candidate):
-            with open(candidate) as f:
-                other_metrics = json.load(f)
-            print(f"\n--- Confronto automatico A vs B (run: {folder}) ---")
-            if instance == "A":
-                compare(metrics, other_metrics)
-            else:
-                compare(other_metrics, metrics)
-            return
+    other = "B" if instance == "A" else "A"
+    candidate = os.path.join(experiments_dir, other, config, "results.json")
+    if not os.path.isfile(candidate):
+        return
+    with open(candidate, encoding="utf-8") as f:
+        other_metrics = json.load(f)
+    print(f"\n--- Confronto automatico A vs B (config: {config}) ---")
+    if instance == "A":
+        compare(metrics, other_metrics)
+    else:
+        compare(other_metrics, metrics)
