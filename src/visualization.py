@@ -2,7 +2,7 @@ import pygame
 import numpy as np
 from environment import EMPTY, WALL, ENTRANCE, EXIT, WAREHOUSE
 from agent import Scout, Collector, Relay, AgentState
-from simulation import Simulation
+from simulation import Simulation, _mesh_communicate
 
 import os
 HEADLESS = os.environ.get("HEADLESS", "0") == "1"
@@ -97,10 +97,7 @@ class Visualizer:
                     break
                 for a in active:
                     a.observe(self.sim.env)
-                for a in active:
-                    for other in self.sim.agents:
-                        if other is not a:
-                            a.communicate(other)
+                _mesh_communicate(active)
                 for a in active:
                     if isinstance(a, Relay):
                         a.decide(self.sim.env, agents=self.sim.agents)
