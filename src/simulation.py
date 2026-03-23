@@ -7,20 +7,20 @@ def _merge_component(agents: list) -> None:
     """Merge atomico dello stato epistemico di tutti gli agenti in una componente connessa.
 
     Opera in sequenza su:
-      1. known_gone_objects  — unione
-      2. local_map           — unione numpy (celle note sovrascrivono UNKNOWN)
-      3. known_objects       — merge dizionario, filtrato per gone
-      4. _unobserved         — intersezione (coerente con la local_map unita)
-      5. peer_frontiers      — distribuzione di tutte le claimed_frontier del gruppo
-      6. _relay_frontiers    — raccolta da Scout + propagazione ai non-Relay
-      7. _yielded_objects    — pulizia gone + assegnazione esclusiva per N fetcher
+      1. known_gone_objects  - unione
+      2. local_map           - unione numpy (celle note sovrascrivono UNKNOWN)
+      3. known_objects       - merge dizionario, filtrato per gone
+      4. _unobserved         - intersezione (coerente con la local_map unita)
+      5. peer_frontiers      - distribuzione di tutte le claimed_frontier del gruppo
+      6. _relay_frontiers    - raccolta da Scout + propagazione ai non-Relay
+      7. _yielded_objects    - pulizia gone + assegnazione esclusiva per N fetcher
     """
     # 1. known_gone_objects: unione di tutti i set
     all_gone: set = set()
     for a in agents:
         all_gone |= a.known_gone_objects
 
-    # 2. local_map: unione — le celle note di qualsiasi agente sovrascrivono UNKNOWN
+    # 2. local_map: unione - le celle note di qualsiasi agente sovrascrivono UNKNOWN
     combined_map = agents[0].local_map.copy()
     for a in agents[1:]:
         mask = a.local_map != UNKNOWN
@@ -32,7 +32,7 @@ def _merge_component(agents: list) -> None:
         merged_objects.update(a.known_objects)
     merged_objects = {k: v for k, v in merged_objects.items() if k not in all_gone}
 
-    # 4. _unobserved: intersezione — una cella esce dal set non appena uno del gruppo l'ha osservata
+    # 4. _unobserved: intersezione - una cella esce dal set non appena uno del gruppo l'ha osservata
     combined_unobserved: set = agents[0]._unobserved.copy()
     for a in agents[1:]:
         combined_unobserved &= a._unobserved
@@ -95,16 +95,16 @@ def _mesh_communicate(agents: list) -> None:
     """Comunicazione a rete mesh per un tick.
 
     Sostituisce il doppio ciclo annidato agent.communicate(other):
-      Fase 1 — costruisce il grafo di adiacenza con condizione OR sui raggi
+      Fase 1 - costruisce il grafo di adiacenza con condizione OR sui raggi
                (arco A-B se dist <= max(A.comm_radius, B.comm_radius))
-      Fase 2 — trova le componenti connesse tramite BFS
-      Fase 3 — per ogni componente con >= 2 agenti esegue _merge_component
+      Fase 2 - trova le componenti connesse tramite BFS
+      Fase 3 - per ogni componente con >= 2 agenti esegue _merge_component
     """
     n = len(agents)
     if n < 2:
         return
 
-    # Fase 1: grafo di adiacenza — arco se almeno uno dei due raggi copre la distanza
+    # Fase 1: grafo di adiacenza - arco se almeno uno dei due raggi copre la distanza
     adj: dict[int, set] = {i: set() for i in range(n)}
     for i in range(n):
         for j in range(i + 1, n):

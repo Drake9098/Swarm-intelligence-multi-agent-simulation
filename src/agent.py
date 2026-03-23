@@ -501,9 +501,9 @@ class Relay(Agent):
     per minimizzare i ritardi di comunicazione, poi si dirige verso i magazzini noti
     per trasferire le info raccolte ai Collector.
 
-    Regola 1 — conosce oggetti da condividere:
+    Regola 1 - conosce oggetti da condividere:
         → vai verso l'ingresso del magazzino noto più vicino.
-    Regola 2 — nessun oggetto noto:
+    Regola 2 - nessun oggetto noto:
         → raggiunge il baricentro tra posizione media degli Scout e dei Collector attivi,
           ricalcolando il target solo quando il centroide si sposta di più di 4 celle
           (anti-oscillazione). Fallback al pattugliamento a diamante se agents=None.
@@ -517,6 +517,11 @@ class Relay(Agent):
         self.can_fetch = False
         self._relay_frontiers: set[tuple] = set()
         self._bridge_target: tuple | None = None
+
+    @property
+    def explore_strategy(self) -> str:
+        """Short UI label (full logic in decide / class docstring)."""
+        return "Midpoint"
 
     def _compute_bridge_target(self, agents: list) -> tuple | None:
         """Calcola il punto medio (baricentro) tra la posizione media degli Scout attivi

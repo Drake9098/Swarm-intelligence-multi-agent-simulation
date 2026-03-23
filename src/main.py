@@ -38,8 +38,17 @@ if __name__ == "__main__":
         sim.run()
         log = sim.log
     else:
-        viz = Visualizer(sim.env, sim.agents, max_ticks=args.ticks, show_ground_truth=args.show_ground_truth)
+        sim._config_label = args.config.replace("_", " ")
+        viz = Visualizer(
+            sim.env,
+            sim.agents,
+            max_ticks=args.ticks,
+            show_ground_truth=args.show_ground_truth,
+            restart_path=json_path,
+            restart_config=args.config,
+        )
         log = viz.run_simulation(sim)
+        sim = viz.sim
 
     log_path = os.path.join(run_dir, "simulation_log.json")
     with open(log_path, "w") as f:

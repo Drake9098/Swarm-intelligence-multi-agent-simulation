@@ -1,5 +1,5 @@
-# Simulazione e visualizzazione
-pygame>=2.5.0
+# Interfaccia grafica (Qt)
+PySide6>=6.6.0
 
 # Calcolo numerico e heatmap
 numpy>=1.26.0
