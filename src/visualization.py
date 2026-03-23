@@ -464,7 +464,7 @@ class SwarmMainWindow(QMainWindow):
 
         sim = visualizer.sim
         label = getattr(sim, "_config_label", "sim")
-        self.setWindowTitle(f"Swarm — {label} | tick {sim.tick}/{visualizer.max_ticks}")
+        self.setWindowTitle(f"Swarm - {label} | tick {sim.tick}/{visualizer.max_ticks}")
         self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
 
         central = QWidget()
@@ -828,7 +828,7 @@ class SwarmMainWindow(QMainWindow):
             self._finished = True
             self.sim_timer.stop()
             self.setWindowTitle(
-                f"Swarm — completato | tick {sim.tick} | "
+                f"Swarm - completato | tick {sim.tick} | "
                 f"oggetti {10 - sim.env.objects_remaining()}/10"
             )
             self._refresh_labels()
@@ -846,7 +846,7 @@ class SwarmMainWindow(QMainWindow):
                         (a.r, a.c)
                     )
             self.setWindowTitle(
-                f"Swarm — tick {sim.tick}/{self.viz.max_ticks} | "
+                f"Swarm - tick {sim.tick}/{self.viz.max_ticks} | "
                 f"oggetti {10 - sim.env.objects_remaining()}/10"
                 + ("  [PAUSA]" if self.viz.paused else "")
             )
@@ -878,7 +878,7 @@ class SwarmMainWindow(QMainWindow):
             ent["battery"].setValue(max(0, ag.battery))
             ent["comm"].setText(str(ag.comm_radius))
             ent["carry"].setText("-" if ag.carrying is None else str(ag.carrying))
-            ent["strat"].setText(ag.explore_strategy or "—")
+            ent["strat"].setText(ag.explore_strategy or "-")
             ent["state_pill"].setText(ag.state.name)
             _hx = _agent_accent_hex(ag)
             ent["dot"].setStyleSheet(

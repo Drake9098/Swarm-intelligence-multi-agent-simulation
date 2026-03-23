@@ -1,4 +1,4 @@
-"""analysis.py — Metriche post-simulazione, visualizzazioni e confronto A/B."""
+"""analysis.py - Metriche post-simulazione, visualizzazioni e confronto A/B."""
 
 import json
 import os
@@ -149,7 +149,7 @@ def plot_heatmap(heatmap: np.ndarray, instance: str, output_dir: str = ".") -> s
     fig, ax = plt.subplots(figsize=(7, 6))
     im = ax.imshow(heatmap, cmap="hot", interpolation="nearest")
     plt.colorbar(im, ax=ax, label="Visite")
-    ax.set_title(f"Heatmap frequenza di visita — Istanza {instance}")
+    ax.set_title(f"Heatmap frequenza di visita - Istanza {instance}")
     ax.set_xlabel("Colonna")
     ax.set_ylabel("Riga")
     path = os.path.join(output_dir, "heatmap.png")
@@ -171,7 +171,7 @@ _INSTANCE_STYLES = {"A": "-", "B": "--"}
 def plot_comparison_energy(runs: list, output_path: str) -> str:
     """Grafico con una linea per run: batteria totale residua nel tempo.
 
-    runs — lista di dict {"label": str, "instance": str, "config": str, "timeline": list}
+    runs - lista di dict {"label": str, "instance": str, "config": str, "timeline": list}
     """
     fig, ax = plt.subplots(figsize=(11, 6))
     for run in runs:
@@ -179,7 +179,7 @@ def plot_comparison_energy(runs: list, output_path: str) -> str:
         ls = _INSTANCE_STYLES.get(run["instance"], "-")
         ax.plot(run["timeline"], color=color, linestyle=ls,
                 linewidth=1.8, label=run["label"])
-    ax.set_title("Energia residua totale — confronto configurazioni")
+    ax.set_title("Energia residua totale - confronto configurazioni")
     ax.set_xlabel("Tick")
     ax.set_ylabel("Batteria totale residua")
     ax.legend(loc="upper right", fontsize=9)
@@ -193,7 +193,7 @@ def plot_comparison_energy(runs: list, output_path: str) -> str:
 def plot_comparison_objects(runs: list, output_path: str) -> str:
     """Grafico con una linea per run: oggetti consegnati cumulativi nel tempo.
 
-    runs — lista di dict {"label": str, "instance": str, "config": str, "timeline": list}
+    runs - lista di dict {"label": str, "instance": str, "config": str, "timeline": list}
     """
     fig, ax = plt.subplots(figsize=(11, 6))
     for run in runs:
@@ -201,7 +201,7 @@ def plot_comparison_objects(runs: list, output_path: str) -> str:
         ls = _INSTANCE_STYLES.get(run["instance"], "-")
         ax.plot(run["timeline"], color=color, linestyle=ls,
                 linewidth=1.8, label=run["label"])
-    ax.set_title("Oggetti consegnati nel tempo — confronto configurazioni")
+    ax.set_title("Oggetti consegnati nel tempo - confronto configurazioni")
     ax.set_xlabel("Tick")
     ax.set_ylabel("Oggetti consegnati (cumulativo)")
     ax.set_yticks(range(0, TOTAL_OBJECTS + 1))
@@ -221,7 +221,7 @@ def _make_subplots_grid(runs: list, suptitle: str, ylabel: str,
                         yticks: list | None, output_path: str) -> str:
     """Griglia nrows×ncols di subplot (righe = istanze, colonne = config) con sharex e sharey.
 
-    runs — lista di dict {"label", "instance", "config", "timeline"}
+    runs - lista di dict {"label", "instance", "config", "timeline"}
     """
     instances = sorted({r["instance"] for r in runs})
     configs   = sorted(
@@ -266,7 +266,7 @@ def plot_subplots_energy(runs: list, output_path: str) -> str:
     """Griglia subplot per la batteria totale residua (sharex + sharey)."""
     return _make_subplots_grid(
         runs,
-        suptitle="Energia residua totale — subplot per configurazione",
+        suptitle="Energia residua totale - subplot per configurazione",
         ylabel="Batteria totale residua",
         yticks=None,
         output_path=output_path,
@@ -277,7 +277,7 @@ def plot_subplots_objects(runs: list, output_path: str) -> str:
     """Griglia subplot per gli oggetti consegnati (sharex + sharey)."""
     return _make_subplots_grid(
         runs,
-        suptitle="Oggetti consegnati nel tempo — subplot per configurazione",
+        suptitle="Oggetti consegnati nel tempo - subplot per configurazione",
         ylabel="Oggetti consegnati",
         yticks=list(range(0, TOTAL_OBJECTS + 1)),
         output_path=output_path,
