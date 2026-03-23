@@ -1,4 +1,4 @@
-"""run_all.py — Esegue tutte le combinazioni (istanza × config) in modalità headless
+"""run_all.py - Esegue tutte le combinazioni (istanza × config) in modalità headless
 e genera i grafici di confronto aggregati.
 
 All'avvio svuota experiments/ e riscrive layout fisso (nessun timestamp):
@@ -88,7 +88,7 @@ def main():
 
         status = "✓ OK" if proc.returncode == 0 else f"✗ ERRORE (exit {proc.returncode})"
         run_results.append((label, status, elapsed))
-        print(f"\n  {status}  —  {elapsed:.1f}s\n")
+        print(f"\n  {status}  -  {elapsed:.1f}s\n")
 
     total_elapsed = time.time() - batch_start
 
@@ -96,7 +96,7 @@ def main():
     print(f"  RIEPILOGO  ({total_elapsed:.1f}s totali)")
     print(f"{'═' * 58}")
     for label, status, elapsed in run_results:
-        print(f"  {status:<12}  {elapsed:>6.1f}s  —  {label}")
+        print(f"  {status:<12}  {elapsed:>6.1f}s  -  {label}")
     print(f"{'═' * 58}\n")
 
     failures = [r for r in run_results if "ERRORE" in r[1]]
@@ -115,11 +115,11 @@ def main():
     for instance, config in product(args.instances, args.configs):
         run_dir = run_output_dir(experiments_dir, instance, config)
         if not os.path.isdir(run_dir):
-            print(f"  [warn] run non trovato: {instance}/{config} — saltato")
+            print(f"  [warn] run non trovato: {instance}/{config} - saltato")
             continue
         log_path = os.path.join(run_dir, "simulation_log.json")
         if not os.path.exists(log_path):
-            print(f"  [warn] log mancante in {run_dir} — saltato")
+            print(f"  [warn] log mancante in {run_dir} - saltato")
             continue
         with open(log_path) as f:
             log = json.load(f)
